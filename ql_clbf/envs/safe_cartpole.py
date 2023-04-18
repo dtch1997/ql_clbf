@@ -31,4 +31,4 @@ class SafeCartPoleEnv(CartPoleEnv, SafetyEnv):
             (states[:, 2] > -self.theta_threshold_radians) *
             (states[:, 2] < self.theta_threshold_radians)
         )
-        return np.logical_not(is_safe).reshape(-1, 1)
+        return ~is_safe

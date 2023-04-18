@@ -19,4 +19,4 @@ def test_is_unsafe():
     states = env.sample_states(100)
     assert states.shape == (100, 4)
     is_unsafe = env.is_unsafe(states)
-    assert is_unsafe.shape == (100, 1)
+    assert is_unsafe.shape == (100,)

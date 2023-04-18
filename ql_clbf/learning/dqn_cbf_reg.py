@@ -161,7 +161,7 @@ if __name__ == "__main__":
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
-            q_values = q_network(torch.Tensor(obs).to(device))
+            q_values = q_network.get_q_values(torch.Tensor(obs).to(device))
             actions = torch.argmax(q_values, dim=1).cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
@@ -204,19 +204,19 @@ if __name__ == "__main__":
 
                 cbf_losses = q_network.compute_cbf_losses(
                     x = data.observations,
-                    is_x_unsafe = envs.call('is_unsafe', data.is_unsafe),
+                    is_x_unsafe = envs.call('is_unsafe', data.observations)[0],
                     u = data.actions,
                     x_next=data.next_observations,
                 )
 
-                loss += args.cbf_reg_loss * cbf_losses['x_unsafe_loss']
-                loss += args.cbf_reg_loss * cbf_losses['x_safe_loss']
+                loss += args.cbf_reg_coef * cbf_losses['x_unsafe']
+                loss += args.cbf_reg_coef * cbf_losses['x_safe']
 
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
                     writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
-                    writer.add_scalar("losses/cbf_unsafe_loss", cbf_losses['x_unsafe_loss'], global_step)
-                    writer.add_scalar("losses/cbf_safe_loss", cbf_losses['x_safe_loss'], global_step)
+                    writer.add_scalar("losses/cbf_unsafe_loss", cbf_losses['x_unsafe'], global_step)
+                    writer.add_scalar("losses/cbf_safe_loss", cbf_losses['x_safe'], global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 

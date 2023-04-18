@@ -42,18 +42,10 @@ class QCLBFNet(nn.Module):
     def compute_cbf_losses(self, x, is_x_unsafe, u, x_next):
         h_values = self.get_h_values(x)                
         # x_unsafe loss: penalize h(x) <= 0 where is_unsafe(x) = 1
-        x_unsafe_loss = F.relu(-h_values[is_x_unsafe == 1]).mean()
+        x_unsafe_loss = (F.relu(-h_values) * is_x_unsafe.float()).mean()
         # x_safe loss: penalize h(x) >= 0 where is_unsafe(x) = 0
-        x_safe_loss = F.relu(h_values[is_x_unsafe == 0]).mean()
+        x_safe_loss = (F.relu(h_values) * (1 - is_x_unsafe.float())).mean()
         return {
             'x_unsafe': x_unsafe_loss,
             'x_safe': x_safe_loss,
         }
-
-    def get_safety_prediction(self, x: torch.Tensor):
-        """ Return safety prediction 
-        1 means safe, 0 means unsafe """
-        h_values = self.get_h_values(x)
-        preds = (h_values <= 0).float()
-        log_probs = F.logsigmoid(-h_values)
-        return preds, log_probs

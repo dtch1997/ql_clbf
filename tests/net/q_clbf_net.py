@@ -30,3 +30,8 @@ def test_q_clbf_net():
     h_values = net.get_h_values(x)
     assert h_values.shape == (32,)
 
+    losses = net.compute_cbf_losses(x, torch.zeros(32), None, None)
+    assert losses['x_unsafe'] == 0
+    
+    losses = net.compute_cbf_losses(x, torch.ones(32), None, None)
+    assert losses['x_safe'] == 0
