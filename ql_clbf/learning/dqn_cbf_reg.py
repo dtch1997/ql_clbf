@@ -197,16 +197,15 @@ if __name__ == "__main__":
                 with torch.no_grad():
                     target_max, _ = target_network.get_q_values(data.next_observations).max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
+                    h_values = q_network.get_h_values(data.observations)
                 old_val_all = q_network.get_q_values(data.observations)
                 old_val_act = old_val_all.gather(1, data.actions).squeeze()
                 old_val = old_val_act
                 loss = F.mse_loss(td_target, old_val)
 
                 cbf_losses = q_network.compute_cbf_losses(
-                    x = data.observations,
-                    is_x_unsafe = envs.call('is_unsafe', data.observations)[0],
-                    u = data.actions,
-                    x_next=data.next_observations,
+                    x = data.next_observations,
+                    is_x_unsafe = envs.call('is_unsafe', data.next_observations)[0],
                 )
 
                 loss += args.cbf_reg_coef * cbf_losses['x_unsafe']
@@ -215,6 +214,7 @@ if __name__ == "__main__":
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
                     writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
+                    writer.add_scalar("losses/h_values", h_values.mean().item(), global_step)
                     writer.add_scalar("losses/cbf_unsafe_loss", cbf_losses['x_unsafe'], global_step)
                     writer.add_scalar("losses/cbf_safe_loss", cbf_losses['x_safe'], global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))

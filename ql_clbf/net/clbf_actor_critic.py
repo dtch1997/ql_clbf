@@ -3,7 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class QCLBFNet(nn.Module):
+from torch.distributions.normal import Normal
+
+class CLBFActorCritic(nn.Module):
     
     def __init__(self, 
                 observation_dim: int,
@@ -11,14 +13,14 @@ class QCLBFNet(nn.Module):
                 hidden_dim: int, 
                 r_max: float,
                 gamma: float):
-        super(QCLBFNet, self).__init__()
+        super(CLBFActorCritic, self).__init__()
         self.observation_dim = observation_dim
         self.action_dim = action_dim
         self.hidden_dim = hidden_dim
         self.r_max = r_max
         self.gamma = gamma
 
-        self.net = nn.Sequential(
+        self.actor_mean = nn.Sequential(
             nn.Linear(self.observation_dim, self.hidden_dim),
             nn.ELU(),
             nn.Linear(self.hidden_dim, self.hidden_dim),
@@ -27,15 +29,34 @@ class QCLBFNet(nn.Module):
             nn.ELU(),
             nn.Linear(self.hidden_dim, self.action_dim)
         )
-    
-    def get_q_values(self, x: torch.Tensor):
+        self.actor_log_std = nn.Parameter(torch.zeros(self.action_dim))
+
+        self.critic = nn.Sequential(
+            nn.Linear(self.observation_dim, self.hidden_dim),
+            nn.ELU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.ELU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.ELU(),
+            nn.Linear(self.hidden_dim, 1)
+        )
+
+    def get_values(self, x: torch.Tensor):
         """ Return Q-values """
-        return self.net(x)
+        return self.critic(x)
+    
+    def get_action_and_value(self, x, action=None):
+        action_mean = self.actor_mean(x)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
     
     def get_h_values(self, x: torch.Tensor):
         """ Return barrier function value """
-        q_values = self.get_q_values(x)
-        state_values = torch.max(q_values, dim=1)[0]
+        state_values = self.get_state_values(x)
         barrier_values = - state_values + self.r_max / (1 - self.gamma)
         return barrier_values
     

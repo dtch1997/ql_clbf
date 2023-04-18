@@ -20,3 +20,6 @@ def test_is_unsafe():
     assert states.shape == (100, 4)
     is_unsafe = env.is_unsafe(states)
     assert is_unsafe.shape == (100,)
+
+    safe_state = np.array([[0.0, 0.0, 0.0, 0.0]])
+    assert not env.is_unsafe(safe_state)
