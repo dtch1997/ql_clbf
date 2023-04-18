@@ -29,7 +29,7 @@ class CLBFActorCritic(nn.Module):
             nn.ELU(),
             nn.Linear(self.hidden_dim, self.action_dim)
         )
-        self.actor_log_std = nn.Parameter(torch.zeros(self.action_dim))
+        self.actor_logstd = nn.Parameter(torch.zeros(self.action_dim))
 
         self.critic = nn.Sequential(
             nn.Linear(self.observation_dim, self.hidden_dim),
@@ -41,7 +41,7 @@ class CLBFActorCritic(nn.Module):
             nn.Linear(self.hidden_dim, 1)
         )
 
-    def get_values(self, x: torch.Tensor):
+    def get_value(self, x: torch.Tensor):
         """ Return Q-values """
         return self.critic(x)
     
@@ -56,7 +56,7 @@ class CLBFActorCritic(nn.Module):
     
     def get_h_values(self, x: torch.Tensor):
         """ Return barrier function value """
-        state_values = self.get_state_values(x)
+        state_values = self.get_value(x)
         barrier_values = - state_values + self.r_max / (1 - self.gamma)
         return barrier_values
     
