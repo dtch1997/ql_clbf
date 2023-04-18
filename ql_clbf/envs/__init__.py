@@ -1,0 +1,1 @@
+import ql_clbf.envs.registration # noqa

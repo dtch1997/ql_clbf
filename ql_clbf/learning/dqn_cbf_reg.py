@@ -1,12 +1,12 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/dqn/#dqnpy
 import argparse
 import os
+import copy
 import random
 import time
 from distutils.util import strtobool
 
 import gym
-import ql_clbf.envs.gym # register envs
 import numpy as np
 import torch
 import torch.nn as nn
@@ -14,6 +14,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
+
+from ql_clbf.envs.env_interface import SafetyEnv, EnvHParams
+from ql_clbf.net.q_clbf_net import QCLBFNet
+from ql_clbf.utils.gym_utils import get_flattened_dim
 
 def parse_args():
     # fmt: off
@@ -36,11 +40,7 @@ def parse_args():
         help="whether to capture videos of the agent performances (check out `videos` folder)")
     parser.add_argument("--save-model", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="whether to save model into the `runs/{run_name}` folder")
-    parser.add_argument("--upload-model", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="whether to upload the saved model to huggingface")
-    parser.add_argument("--hf-entity", type=str, default="",
-        help="the user or org name of the model repository from the Hugging Face Hub")
-
+    
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="CartPole-v1",
         help="the id of the environment")
@@ -52,8 +52,6 @@ def parse_args():
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
-    parser.add_argument('-R', '--reward-upper-bound', type=float, default=1.0, 
-                        help="Upper bound on reward for environment")
     parser.add_argument('--cbf-reg-coef', type=float, default=0.0,
         help="the coefficient of the CBF regularization term")
     parser.add_argument("--tau", type=float, default=1.,
@@ -74,10 +72,6 @@ def parse_args():
         help="the frequency of training")
     parser.add_argument('--eval-frequency', type=int, default=100000)
     parser.add_argument('--eval-episodes', type=int, default=10)
-    parser.add_argument("--supervised-frequency", type=int, default=-1,
-        help="the frequency of supervised learning step")
-    parser.add_argument("--supervised-batch-size", type=int, default=256,
-        help="the frequency of supervised learning step")
     args = parser.parse_args()
     # fmt: on
     return args
@@ -96,23 +90,6 @@ def make_env(env_id, seed, idx, capture_video, run_name):
         return env
 
     return thunk
-
-
-# ALGO LOGIC: initialize agent here:
-class QNetwork(nn.Module):
-    def __init__(self, env):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
-            nn.ReLU(),
-            nn.Linear(120, 84),
-            nn.ReLU(),
-            nn.Linear(84, env.single_action_space.n),
-        )
-
-    def forward(self, x):
-        return self.network(x)
-
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
@@ -149,12 +126,21 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
+    env: SafetyEnv = gym.make(args.env_id)
+    env_hparams: EnvHParams = env.get_hparams()
+
     envs = gym.vector.SyncVectorEnv([make_env(args.env_id, args.seed, 0, args.capture_video, run_name)])
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
-    q_network = QNetwork(envs).to(device)
+    q_network = QCLBFNet(
+        observation_dim = env_hparams.observation_dim,
+        hidden_dim = 64,
+        action_dim = env_hparams.action_dim,
+        r_max = env_hparams.r_max,
+        gamma = args.gamma,
+    ).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(envs).to(device)
+    target_network = copy.deepcopy(q_network)
     target_network.load_state_dict(q_network.state_dict())
 
     rb = ReplayBuffer(
@@ -206,56 +192,31 @@ if __name__ == "__main__":
 
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
-
-            # If enabled, run CBF supervised learning step
-            if (args.supervised_frequency > 0) and global_step % args.supervised_frequency == 0:
-                unsafe_states = envs.call('sample_unsafe_states', args.supervised_batch_size)
-                unsafe_states = np.stack(unsafe_states, axis=0)
-                unsafe_states = unsafe_states.reshape(-1, np.array(envs.single_observation_space.shape).prod())
-                unsafe_states = torch.Tensor(unsafe_states).to(device)
-
-                qsa_val = q_network(unsafe_states)
-                qs_val, _ = qsa_val.max(dim=1)
-                h_val = - qs_val + args.reward_upper_bound / (1- args.gamma)
-                supervised_loss = torch.maximum(-h_val, torch.zeros_like(h_val))
-                supervised_loss = supervised_loss.mean()
-
-                if global_step % 100 == 0:
-                    writer.add_scalar("losses/cbf_supervised_loss", supervised_loss, global_step)
-
-                # optimize the model
-                optimizer.zero_grad()
-                supervised_loss.backward()
-                optimizer.step()
-
-                del unsafe_states, qsa_val, qs_val, supervised_loss
-
             if global_step % args.train_frequency == 0:
                 data = rb.sample(args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=1)
+                    target_max, _ = target_network.get_q_values(data.next_observations).max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
-                old_val_all = q_network(data.observations)
+                old_val_all = q_network.get_q_values(data.observations)
                 old_val_act = old_val_all.gather(1, data.actions).squeeze()
                 old_val = old_val_act
                 loss = F.mse_loss(td_target, old_val)
 
-                # TRY NOT TO MODIFY: CBF regularization term
-                # Hack: Assume reward = 0 when unsafe and reward > 0 when not unsafe
-                is_unsafe = (data.rewards < -1 + 1e-6).float()
-                q_val, _ = old_val_all.max(dim=-1)
-                h_val = - q_val + args.reward_upper_bound / (1- args.gamma)
-                cbf_unsafe_loss = torch.maximum(-h_val, torch.zeros_like(h_val)) * is_unsafe
-                cbf_loss = cbf_unsafe_loss.mean()
+                cbf_losses = q_network.compute_cbf_losses(
+                    x = data.observations,
+                    is_x_unsafe = envs.call('is_unsafe', data.is_unsafe),
+                    u = data.actions,
+                    x_next=data.next_observations,
+                )
 
-                # Compute total loss
-                reg_coef = args.cbf_reg_coef
-                loss += reg_coef * cbf_loss
+                loss += args.cbf_reg_loss * cbf_losses['x_unsafe_loss']
+                loss += args.cbf_reg_loss * cbf_losses['x_safe_loss']
 
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
                     writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
-                    writer.add_scalar("losses/cbf_reg_loss", cbf_loss, global_step)
+                    writer.add_scalar("losses/cbf_unsafe_loss", cbf_losses['x_unsafe_loss'], global_step)
+                    writer.add_scalar("losses/cbf_safe_loss", cbf_losses['x_safe_loss'], global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
@@ -281,55 +242,6 @@ if __name__ == "__main__":
                 if args.track:
                     wandb.save(model_path, base_path=base_path)
                     print(f"model saved to wandb cloud")
-
-                from ql_clbf.learning.dqn_eval import evaluate, plot_h_values_trajectory
-                eval_info = evaluate(
-                    model_path,
-                    make_env,
-                    args.env_id,
-                    eval_episodes=args.eval_episodes,
-                    run_name=f"{run_name}-eval",
-                    Model=QNetwork,
-                    device=device,
-                    epsilon=0.00, # Disable exploration in evaluation
-                    capture_video=args.capture_video,
-                )
-
-                model = eval_info['model']
-                envs = eval_info['envs']
-                episodic_returns = eval_info['episodic_returns']
-                episodic_q_values = eval_info['episodic_q_values']
-                episodic_state_trajectories = eval_info['episodic_state_trajectories']
-                episodic_violations = eval_info['episodic_violations']
-                episodic_safety_success = eval_info['episodic_safety_success']
-
-                # Compute empirical safety accuracy
-                unsafe_states = envs.call('sample_unsafe_states', 10000)
-                unsafe_states = np.stack(unsafe_states, axis=0)
-                unsafe_states = unsafe_states.reshape(-1, np.array(envs.single_observation_space.shape).prod())
-                unsafe_states = torch.Tensor(unsafe_states).to(device)
-                state_values = model(unsafe_states).max(dim=-1)[0]
-                h_values = - state_values + args.reward_upper_bound / (1- args.gamma)
-                is_unsafe_empirical = torch.ones_like(h_values) # True unsafe labels are all ones
-                is_unsafe_pred_empirical = (h_values > 0).float()
-                is_unsafe_accuracy_empirical = (is_unsafe_pred_empirical == is_unsafe_empirical).float().mean()
-                
-                # Compute rollout safety accuracy 
-                states = episodic_state_trajectories # (episodes, steps, 1, state_dim)
-                states = torch.Tensor(states).to(device)
-                state_values = model(states).max(dim=-1)[0]
-                h_values = - state_values + args.reward_upper_bound / (1- args.gamma)
-                is_unsafe_rollout = torch.Tensor(episodic_violations).to(device)
-                is_unsafe_pred_rollout = (h_values > 0).float()
-                is_unsafe_accuracy_rollout = (is_unsafe_pred_rollout == is_unsafe_rollout).float().mean()
-
-                writer.add_scalar("eval/episodic_return", episodic_returns.mean(), global_step)
-                writer.add_scalar("eval/safety_success_rate", episodic_safety_success.mean(), global_step)
-                writer.add_scalar("eval/safety_accuracy_empirical", is_unsafe_accuracy_empirical, global_step)
-                writer.add_scalar("eval/safety_accuracy_rollout", is_unsafe_accuracy_rollout, global_step)
-
-                fig, ax = plot_h_values_trajectory(episodic_q_values, args.reward_upper_bound, args.gamma)
-                writer.add_figure("eval/h_values_trajectory", fig, global_step)
 
     envs.close()
     writer.close()
