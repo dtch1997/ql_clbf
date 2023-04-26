@@ -17,6 +17,9 @@ class QNetworkEnsemble(nn.Module):
         self.envs = envs
         self.models = nn.ModuleList(models)
 
+    def get_num_models(self):
+        return len(self.models)
+
     def forward(self, x, reduction: str ='min'):
         assert reduction in ['min', 'max', 'mean']
         q_values = torch.stack([model(x) for model in self.models], dim=0)
@@ -85,21 +88,26 @@ def evaluate(
 
 if __name__ == "__main__":
 
-    model_paths = [
-        'downloads/llxgy0q2/dqn.pth',
-        'downloads/u2vzgk9i/dqn.pth',
-    ]
+    import argparse 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model-paths', nargs='+', type=str, required=True)
+    args = parser.parse_args()
 
     envs = load_env('CartPole-v1', 'eval', capture_video=False)
-    model_A = load_model(envs, model_paths[0])
-    model_B = load_model(envs, model_paths[1])
-    model_AB = load_ensemble_model(envs, model_paths)
+    model_ensemble = load_ensemble_model(envs, args.model_paths)
 
     eval_episodes = 10
-    returns_A = evaluate(model_A, envs, eval_episodes)
-    returns_B = evaluate(model_B, envs, eval_episodes)
-    returns_AB = evaluate(model_AB, envs, eval_episodes)
 
-    print(f"returns_A={returns_A}")
-    print(f"returns_B={returns_B}")
-    print(f"returns_AB={returns_AB}")
+    if model_ensemble.get_num_models() > 1:
+        for i, model in enumerate(model_ensemble.models):
+            print(f"evaluating model {i}")
+            # Reload envs to change video recording directory
+            envs = load_env('CartPole-v1', f'eval_primitive_{i}', capture_video=True)
+            returns = evaluate(model, envs, eval_episodes)
+            print(f"returns={returns}")
+
+    print("evaluating ensemble model")
+    # Reload envs to change video recording directory
+    envs = load_env('CartPole-v1', f'eval_ensemble', capture_video=True)
+    ensemble_return = evaluate(model_ensemble, envs, eval_episodes)
+    print(f"ensemble_return={ensemble_return}")
