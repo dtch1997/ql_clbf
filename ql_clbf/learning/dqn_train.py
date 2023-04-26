@@ -15,6 +15,8 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
 import ql_clbf.envs
+from ql_clbf.learning.env_utils import make_env
+from ql_clbf.net.q_network import QNetwork
 
 def parse_args():
     # fmt: off
@@ -72,38 +74,6 @@ def parse_args():
     args = parser.parse_args()
     # fmt: on
     return args
-
-
-def make_env(env_id, seed, idx, capture_video, run_name):
-    def thunk():
-        env = gym.make(env_id)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        if capture_video:
-            if idx == 0:
-                env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        env.seed(seed)
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-        return env
-
-    return thunk
-
-
-# ALGO LOGIC: initialize agent here:
-class QNetwork(nn.Module):
-    def __init__(self, env):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
-            nn.ELU(),
-            nn.Linear(120, 84),
-            nn.ELU(),
-            nn.Linear(84, env.single_action_space.n),
-        )
-
-    def forward(self, x):
-        return self.network(x)
-
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration

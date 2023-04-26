@@ -8,6 +8,9 @@ import torch
 import torch.nn as nn
 from typing import List
 
+from ql_clbf.learning.env_utils import make_env
+from ql_clbf.net.q_network import QNetwork
+
 class QNetworkEnsemble(nn.Module):
     def __init__(self, envs, models: List[nn.Module]):
         super(QNetworkEnsemble, self).__init__()
@@ -24,63 +27,46 @@ class QNetworkEnsemble(nn.Module):
         elif reduction == 'mean':
             return torch.mean(q_values, dim=0)
 
-def evaluate(
-    model_path: str,
-    make_env: Callable,
+def load_env(
     env_id: str,
-    eval_episodes: int,
     run_name: str,
-    Model: torch.nn.Module,
-    device: torch.device = torch.device("cpu"),
-    epsilon: float = 0.05,
     capture_video: bool = True,
 ):
     envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
-    model = Model(envs).to(device)
+    return envs
+
+def load_model(    
+    envs: gym.vector.SyncVectorEnv,
+    model_path: str,
+    device: torch.device = torch.device("cpu"),
+):
+    model = QNetwork(envs).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
+    return model        
 
-    obs = envs.reset()
-    episodic_returns = []
-    print(obs)
-    while len(episodic_returns) < eval_episodes:
-        if random.random() < epsilon:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-        else:
-            q_values = model(torch.Tensor(obs).to(device))
-            actions = torch.argmax(q_values, dim=1).cpu().numpy()
-        next_obs, _, _, infos = envs.step(actions)
-        for info in infos:
-            if "episode" in info.keys():
-                print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
-                episodic_returns += [info["episode"]["r"]]
-        obs = next_obs
-
-    return episodic_returns
-
-def evaluate_ensemble(
+def load_ensemble_model(
+    envs: gym.vector.SyncVectorEnv,
     model_paths: List[str],
-    make_env: Callable,
-    env_id: str,
-    eval_episodes: int,
-    run_name: str,
-    Model: torch.nn.Module,
     device: torch.device = torch.device("cpu"),
-    epsilon: float = 0.05,
-    capture_video: bool = True,
 ):
-    envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
-    
     models = []
     for model_path in model_paths:
-        _model = Model(envs).to(device)
+        _model = QNetwork(envs).to(device)
         _model.load_state_dict(torch.load(model_path, map_location=device))
         models.append(_model)
     model = QNetworkEnsemble(envs, models).to(device)
     model.eval()
+    return model
 
+def evaluate(
+    model: nn.Module, 
+    envs: gym.vector.SyncVectorEnv,
+    eval_episodes: int,
+    device: torch.device = torch.device("cpu"),
+    epsilon: float = 0.05,
+):
     obs = envs.reset()
-    print(obs)
     episodic_returns = []
     while len(episodic_returns) < eval_episodes:
         if random.random() < epsilon:
@@ -98,42 +84,22 @@ def evaluate_ensemble(
     return episodic_returns
 
 if __name__ == "__main__":
-    from ql_clbf.learning.dqn import QNetwork, make_env
 
     model_paths = [
         'downloads/llxgy0q2/dqn.pth',
         'downloads/u2vzgk9i/dqn.pth',
     ]
-    
-    evaluate(
-        model_paths[0],
-        make_env,
-        "CartPole-v1",
-        eval_episodes=1,
-        run_name=f"eval_A",
-        Model=QNetwork,
-        device="cpu",
-        capture_video=True, 
-    )
 
-    evaluate(
-        model_paths[1],
-        make_env,
-        "CartPole-v1",
-        eval_episodes=1,
-        run_name=f"eval_B",
-        Model=QNetwork,
-        device="cpu",
-        capture_video=True,
-    )
-    
-    evaluate_ensemble(
-        model_paths,
-        make_env,
-        "CartPole-v1",
-        eval_episodes=1,
-        run_name=f"eval_AB",
-        Model=QNetwork,
-        device="cpu",
-        capture_video=True,
-    )
+    envs = load_env('CartPole-v1', 'eval', capture_video=False)
+    model_A = load_model(envs, model_paths[0])
+    model_B = load_model(envs, model_paths[1])
+    model_AB = load_ensemble_model(envs, model_paths)
+
+    eval_episodes = 10
+    returns_A = evaluate(model_A, envs, eval_episodes)
+    returns_B = evaluate(model_B, envs, eval_episodes)
+    returns_AB = evaluate(model_AB, envs, eval_episodes)
+
+    print(f"returns_A={returns_A}")
+    print(f"returns_B={returns_B}")
+    print(f"returns_AB={returns_AB}")
