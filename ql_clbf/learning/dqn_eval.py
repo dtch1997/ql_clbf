@@ -3,6 +3,7 @@ from typing import Callable
 
 import gym
 import numpy as np
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -35,7 +36,10 @@ def load_env(
     run_name: str,
     capture_video: bool = True,
 ):
-    envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
+    envs = gym.vector.SyncVectorEnv([
+        make_env(env_id, 0, 0, capture_video, run_name, 
+                 record_obs_act_hist=True)
+    ])
     return envs
 
 def load_model(    
@@ -62,6 +66,18 @@ def load_ensemble_model(
     model.eval()
     return model
 
+def create_results_df() -> pd.DataFrame:
+    # Define the column names
+    column_names = [
+        'episode_index', 
+        'episode_return', 
+        'episode_length', 
+        'observation_history', 
+        'action_history']
+    # Initialize an empty DataFrame with the specified columns
+    dataframe = pd.DataFrame(columns=column_names)
+    return dataframe
+
 def evaluate(
     model: nn.Module, 
     envs: gym.vector.SyncVectorEnv,
@@ -70,8 +86,10 @@ def evaluate(
     epsilon: float = 0.05,
 ):
     obs = envs.reset()
-    episodic_returns = []
-    while len(episodic_returns) < eval_episodes:
+
+    results = create_results_df()
+
+    while len(results) < eval_episodes:
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
@@ -80,11 +98,19 @@ def evaluate(
         next_obs, _, _, infos = envs.step(actions)
         for info in infos:
             if "episode" in info.keys():
-                print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
-                episodic_returns += [info["episode"]["r"]]
+                print(f"eval_episode={len(results)}, episodic_return={info['episode']['r']}")
+                episode_stats = pd.DataFrame({
+                    'episode_index': [len(results)],
+                    'episode_return': [info["episode"]["r"]],
+                    'episode_length': [info["episode"]["l"]],
+                    'observation_history': [info['observation_history']],
+                    'action_history': [info['action_history']],
+                })
+                results = pd.concat([results, episode_stats], ignore_index=True)
+
         obs = next_obs
 
-    return episodic_returns
+    return results
 
 if __name__ == "__main__":
 
@@ -104,10 +130,11 @@ if __name__ == "__main__":
             # Reload envs to change video recording directory
             envs = load_env('CartPole-v1', f'eval_primitive_{i}', capture_video=True)
             returns = evaluate(model, envs, eval_episodes)
-            print(f"returns={returns}")
+            print(f"returns: {returns}")
 
     print("evaluating ensemble model")
     # Reload envs to change video recording directory
     envs = load_env('CartPole-v1', f'eval_ensemble', capture_video=True)
     ensemble_return = evaluate(model_ensemble, envs, eval_episodes)
     print(f"ensemble_return={ensemble_return}")
+    breakpoint()
