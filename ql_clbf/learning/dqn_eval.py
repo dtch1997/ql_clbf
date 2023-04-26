@@ -78,6 +78,17 @@ def create_results_df() -> pd.DataFrame:
     dataframe = pd.DataFrame(columns=column_names)
     return dataframe
 
+def postprocess_results(
+        results: pd.DataFrame,
+        model: nn.Module,
+        envs: gym.vector.SyncVectorEnv,
+        device: torch.device = torch.device("cpu"),
+    ) -> pd.DataFrame:
+
+    run_model_inference = lambda obs: model(torch.Tensor(obs).to(device)).cpu().detach().numpy()
+    results['q_values'] = results['observation_history'].apply(run_model_inference)
+    return results
+
 def evaluate(
     model: nn.Module, 
     envs: gym.vector.SyncVectorEnv,
@@ -110,6 +121,7 @@ def evaluate(
 
         obs = next_obs
 
+    results = postprocess_results(results, model, envs, device)
     return results
 
 if __name__ == "__main__":
@@ -137,4 +149,3 @@ if __name__ == "__main__":
     envs = load_env('CartPole-v1', f'eval_ensemble', capture_video=True)
     ensemble_return = evaluate(model_ensemble, envs, eval_episodes)
     print(f"ensemble_return={ensemble_return}")
-    breakpoint()
