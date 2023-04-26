@@ -72,8 +72,9 @@ def create_results_df() -> pd.DataFrame:
         'episode_index', 
         'episode_return', 
         'episode_length', 
-        'observation_history', 
-        'action_history']
+        'observations', 
+        'actions',
+        'next_observations']
     # Initialize an empty DataFrame with the specified columns
     dataframe = pd.DataFrame(columns=column_names)
     return dataframe
@@ -86,7 +87,8 @@ def postprocess_results(
     ) -> pd.DataFrame:
 
     run_model_inference = lambda obs: model(torch.Tensor(obs).to(device)).cpu().detach().numpy()
-    results['q_values'] = results['observation_history'].apply(run_model_inference)
+    results['q_values'] = results['observations'].apply(run_model_inference)
+    results['next_q_values'] = results['next_observations'].apply(run_model_inference)
     return results
 
 def evaluate(
@@ -114,8 +116,9 @@ def evaluate(
                     'episode_index': [len(results)],
                     'episode_return': [info["episode"]["r"]],
                     'episode_length': [info["episode"]["l"]],
-                    'observation_history': [info['observation_history']],
-                    'action_history': [info['action_history']],
+                    'observations': [info['observation_history'][:-1]],
+                    'actions': [info['action_history']],
+                    'next_observations': [info['observation_history'][1:]],
                 })
                 results = pd.concat([results, episode_stats], ignore_index=True)
 
