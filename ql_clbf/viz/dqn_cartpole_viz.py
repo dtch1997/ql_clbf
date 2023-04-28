@@ -8,8 +8,8 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.ticker import MaxNLocator
 
 from typing import Callable, List
-from ql_clbf.learning.dqn import make_env, QNetwork
-from ql_clbf.utils.dqn_eval import QNetworkEnsemble
+from ql_clbf.learning.dqn_train import make_env, QNetwork
+from ql_clbf.learning.dqn_eval import QNetworkEnsemble
 
 def load_model(
     model_path: str,

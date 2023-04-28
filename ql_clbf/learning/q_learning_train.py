@@ -42,6 +42,9 @@ def get_state_value_grid(q_table, env):
         state_values_grid[row, col] = q_table[i].max()
     return state_values_grid
 
+def get_default_desc():
+    pass
+
 def get_desc_A():
     return ["FFSFF", "FHHFF", "FFFFF", "FFFFF", "FFGFF"]
 
@@ -56,6 +59,11 @@ def generate_fixed_experiment():
         "A": get_desc_A(),
         "B": get_desc_B(),
         "AB": get_desc_AB(),
+    }
+
+def generate_default_experiment():
+    return {
+        "default": ["SFFF", "FHFH", "FFFH", "HFFG"]
     }
 
 def generate_base_description():
@@ -111,13 +119,17 @@ if __name__ == "__main__":
 
     import argparse 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--fixed', action='store_true')
+    parser.add_argument('--exp', type=str, default = 'default')
     args = parser.parse_args()
 
-    if args.fixed:
+    if args.exp == 'default':
+        descs = generate_default_experiment()
+    elif args.exp == 'fixed':
         descs = generate_fixed_experiment()
-    else:
+    elif args.exp == 'random':
         descs = generate_random_experiment()
+    else:
+        raise ValueError("Invalid experiment type")
 
     for name, desc in descs.items():
         env = gym.make("FrozenLake-v1", is_slippery=False, desc=desc)

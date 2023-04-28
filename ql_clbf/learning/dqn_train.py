@@ -16,6 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import ql_clbf.envs
 from ql_clbf.learning.env_utils import make_env
+from ql_clbf.learning.dqn_eval import *
 from ql_clbf.net.q_network import QNetwork
 
 def parse_args():
@@ -71,6 +72,8 @@ def parse_args():
         help="timestep to start learning")
     parser.add_argument("--train-frequency", type=int, default=10,
         help="the frequency of training")
+    parser.add_argument("--eval-frequency", type=int, default=10000,
+        help="the frequency of evaluation")
     args = parser.parse_args()
     # fmt: on
     return args
@@ -79,6 +82,13 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
+def save_model(model, model_path, base_path, args):
+    torch.save(model.state_dict(), model_path)
+    print(f"model saved to {model_path}")
+
+    if args.track:
+        wandb.save(model_path, base_path=base_path)
+        print(f"model saved to wandb cloud")       
 
 if __name__ == "__main__":
     args = parse_args()
@@ -187,15 +197,24 @@ if __name__ == "__main__":
                     target_network_param.data.copy_(
                         args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                     )
+            
+            if global_step % args.eval_frequency == 0:
+                # Evaluate model
+                eval_envs = gym.vector.SyncVectorEnv([make_env(args.env_id, args.seed, 0, args.capture_video, run_name, record_obs_act_hist=True)])
+                results: 'pd.Dataframe' = evaluate(q_network, eval_envs, 10, device)
+                writer.add_scalar("charts/eval_episodic_return", results["episode_return"].mean(), global_step)
+                writer.add_scalar("charts/eval_episodic_length", results["episode_length"].mean(), global_step)
+
+                # Save model
+                if args.save_model:
+                    model_path = f"runs/{run_name}/{args.exp_name}_step{global_step}.pth"
+                    base_path = f"runs/{run_name}"
+                    save_model(q_network, model_path, base_path, args)            
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.pth"
         base_path = f"runs/{run_name}"
-        torch.save(q_network.state_dict(), model_path)
-        print(f"model saved to {model_path}")
-
-        if args.track:
-            wandb.save(model_path, base_path=base_path)
-            print(f"model saved to wandb cloud")
+        save_model(q_network, model_path, base_path, args) 
+    
     envs.close()
     writer.close()
