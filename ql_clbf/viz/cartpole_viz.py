@@ -29,8 +29,8 @@ def get_default_spaces():
     """
     x_space = torch.linspace(-8, 8, steps=100)
     x_dot_space = torch.linspace(-8, 8, steps=100)
-    theta_space = torch.linspace(-np.pi / 4, np.pi / 4, steps=100)
-    theta_dot_space = torch.linspace(-2, 2, steps=100)
+    theta_space = torch.linspace(-np.pi, np.pi, steps=100)
+    theta_dot_space = torch.linspace(-4, 4, steps=100)
     return x_space, x_dot_space, theta_space, theta_dot_space
 
 def plot_heatmap_theta(fig: plt.Figure, 
@@ -93,7 +93,35 @@ def plot_heatmap_x(fig: plt.Figure,
 if __name__ == '__main__':
 
     from ql_clbf.offline.double_dqn_eval import load_model
-    model = load_model('d3rlpy_logs/DoubleDQN_20230501120606/model_50140.pt')
+    model = load_model('d3rlpy_logs/DoubleDQN_20230501125606/model_49740.pt')
+    env = gym.make('CartPole-v0')
+
+    # Roll out model
+    state = env.reset()
+    done = False
+    states = []
+    actions = []
+    values = []
+    while not done:
+        states.append(state)
+        action = model.predict([state]).item()
+        value = model.predict_value([state], [action]).item()
+        values.append(value)
+        actions.append(action)
+        state, _, done, _ = env.step(action)
+    state_history = np.array(states)
+    action_history = np.array(actions)
+    value_history = np.array(values)
+
+    # Plot value history
+    time = np.arange(len(state_history))
+    fig, ax = plt.subplots()
+    ax.plot(time, value_history)
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Value')
+    ax.set_title('Value history')
+    fig.show()
+    input('Press enter to continue...')
 
     # Evaluate model on theta and theta_dot
     _, _, theta_space, theta_dot_space = get_default_spaces()
@@ -111,6 +139,7 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots(ncols=2, figsize=(25, 10))
     plot_heatmap_theta(fig, ax[0], theta_space, theta_dot_space, barrier_values)
+    ax[0].scatter(state_history[:,2], state_history[:,3], c='k', s=1)
 
     # Evaluate model on x and x_dot
     x_space, x_dot_space, _, _ = get_default_spaces()
@@ -126,6 +155,7 @@ if __name__ == '__main__':
     state_values = torch.Tensor(state_values)
     barrier_values = - state_values
     plot_heatmap_x(fig, ax[1], x_space, x_dot_space, barrier_values)
+    ax[1].scatter(state_history[:,0], state_history[:,1], c='k', s=1)
 
     fig.show()
     input("Press Enter to exit...")

@@ -5,10 +5,17 @@ from d3rlpy.metrics.scorer import td_error_scorer
 from d3rlpy.metrics.scorer import average_value_estimation_scorer
 from d3rlpy.metrics.scorer import evaluate_on_environment
 
+def make_dataset():
+    replay_dataset, env = get_cartpole('replay')
+    random_dataset, _ = get_cartpole('random')
+    replay_dataset.extend(random_dataset)
+    dataset = replay_dataset
+    return dataset, env
+
 if __name__ == "__main__":
     
+    dataset, env = make_dataset()
     
-    dataset, env = get_cartpole()
     
     train_episodes, test_episodes = train_test_split(dataset, test_size=0.2)
 
