@@ -4,6 +4,13 @@ import argparse
 from d3rlpy.algos import DoubleDQN
 from d3rlpy.datasets import get_cartpole # CartPole-v0 dataset
 
+def load_model(model_path, env_id: str = 'CartPole-v0'):
+    env = gym.make(env_id)
+    dqn = DoubleDQN(use_gpu=False)
+    dqn.build_with_env(env)
+    dqn.load_model(model_path)
+    return dqn
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model-paths', type=str, nargs="+")
