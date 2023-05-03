@@ -202,7 +202,13 @@ if __name__ == "__main__":
                 def is_unsafe(states: np.ndarray):
                     x, x_dot, theta, theta_dot = states[..., 0], states[..., 1], states[..., 2], states[..., 3]
                     theta_threshold = 12 * 2 * np.pi / 360
-                    return np.logical_or(np.abs(x) > 2.4, np.abs(theta) > theta_threshold)
+                    if args.env_id == 'CartPoleC-v1':
+                        return np.logical_or(x < -2.4, theta < -theta_threshold)
+                    elif args.env_id == 'CartPoleD-v1':
+                        return np.logical_or(x > 2.4, theta > theta_threshold)
+                    elif args.env_id == 'CartPole-v1':
+                        return np.logical_or(np.abs(x) > 2.4, np.abs(theta) > theta_threshold)
+
                 unsafe_states = states[is_unsafe(states)].astype(np.float32)
                 unsafe_states = torch.from_numpy(unsafe_states).to(device).to(torch.float32)
                 unsafe_qval_pred = q_network(unsafe_states)
