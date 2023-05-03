@@ -3,6 +3,7 @@ from gym.envs.registration import register
 
 from gymnasium.envs.registration import register as register_gymnasium
 from gymnasium_robotics.envs.maze import maps
+from ql_clbf.envs.safety_point_maze import SAFETY_OPEN
 
 register(
     'SafeCartPole-v1',
@@ -60,6 +61,6 @@ register_gymnasium(
     reward_threshold=0.0,
     kwargs={
         "reward_type": 'sparse',
-        'maze_map': maps.OPEN,
+        'maze_map': SAFETY_OPEN
     },
 )

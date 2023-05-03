@@ -18,6 +18,17 @@ from gymnasium_robotics.envs.maze.point import PointEnv
 from gymnasium_robotics.utils.mujoco_utils import MujocoModelNames
 
 UNSAFE = "u"  # Add a constant for unsafe tiles
+R = RESET
+G = GOAL
+U = UNSAFE
+
+SAFETY_OPEN = [
+    [1, 1, 1, 1, 1, 1, 1],
+    [1, R, 0, 0, 0, 0, 1],
+    [1, 0, U, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, G, 1],
+    [1, 1, 1, 1, 1, 1, 1],
+]
 
 class UnsafeMaze(Maze):
 
@@ -86,6 +97,19 @@ class UnsafeMaze(Maze):
                     empty_locations.append(np.array([x, y]))
                 elif struct == UNSAFE:  # Handle the new unsafe tile type
                     maze._unique_unsafe_locations.append(np.array([x, y]))
+                    # Add translucent box in the unsafe tile
+                    ET.SubElement(
+                        worldbody,
+                        "geom",
+                        name=f"unsafe_{i}_{j}",
+                        pos=f"{x} {y} {maze_height / 4 * maze_size_scaling}",
+                        size=f"{0.5 * maze_size_scaling} {0.5 * maze_size_scaling} {maze_height / 4 * maze_size_scaling}",
+                        type="box",
+                        material="",
+                        contype="0",
+                        conaffinity="0",
+                        rgba="1.0 0.0 0.0 0.3",
+                    )
 
         # Add target site for visualization
         ET.SubElement(
@@ -145,15 +169,18 @@ class SafetyMazeEnv(MazeEnv):
 
         self.position_noise_range = position_noise_range
 
-    def is_unsafe(self):
+    def is_unsafe(self, achieved_goal: np.ndarray = None):
         """Returns True if the agent is in an unsafe location"""
-        return self.maze.current_cell in self.maze.unique_unsafe_locations
+        for loc in self.maze.unique_unsafe_locations:
+            if np.all(np.abs(achieved_goal - loc) < 0.5):
+                return True
+        return False
 
     def compute_reward(
         self, achieved_goal: np.ndarray, desired_goal: np.ndarray, info
     ) -> float:
         reward = super().compute_reward(achieved_goal, desired_goal, info)
-        if self.is_unsafe():
+        if self.is_unsafe(achieved_goal):
             reward = -1
         return reward
 
@@ -161,7 +188,7 @@ class SafetyMazeEnv(MazeEnv):
         self, achieved_goal: np.ndarray, desired_goal: np.ndarray, info
     ) -> bool:
         terminated = super().compute_terminated(achieved_goal, desired_goal, info)
-        if self.is_unsafe():
+        if self.is_unsafe(achieved_goal):
             terminated = True
         return terminated
     
