@@ -72,8 +72,12 @@ def parse_args():
         help="timestep to start learning")
     parser.add_argument("--train-frequency", type=int, default=10,
         help="the frequency of training")
-    parser.add_argument("--eval-frequency", type=int, default=10000,
+    parser.add_argument("--eval-frequency", type=int, default=-1,
         help="the frequency of evaluation")
+    
+    # CLBF specific arguments
+    parser.add_argument("--analytic-loss-coef", type=float, default=0.0)
+    parser.add_argument("--unsafe-loss-coef", type=float, default=0.0)
     args = parser.parse_args()
     # fmt: on
     return args
@@ -180,6 +184,34 @@ if __name__ == "__main__":
                 old_val = q_network(data.observations).gather(1, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
 
+                # Implement analytic loss
+                # In CartPole, assume that state [0,0,0,0] is optimal
+                zeros = torch.zeros(1, 4, device=device, dtype=torch.float32)
+                optimal_qval_pred = q_network(zeros)
+                optimal_val_pred = optimal_qval_pred.max(dim=1)[0]
+                optimal_val_true = 100 * torch.ones(1, device=device, dtype=torch.float32)
+                analytic_loss = F.mse_loss(optimal_val_pred, optimal_val_true)
+                writer.add_scalar("losses/analytic_loss", analytic_loss, global_step)
+                loss += args.analytic_loss_coef * analytic_loss
+
+                # Implement unsafe loss
+                states = np.random.uniform(
+                    low = (-4.8, -4.0, -0.4, -3.0),
+                    high = (4.8, 4.0, 0.4, 3.0),
+                )
+                def is_unsafe(states: np.ndarray):
+                    x, x_dot, theta, theta_dot = states[..., 0], states[..., 1], states[..., 2], states[..., 3]
+                    theta_threshold = 12 * 2 * np.pi / 360
+                    return np.logical_or(np.abs(x) > 2.4, np.abs(theta) > theta_threshold)
+                unsafe_states = states[is_unsafe(states)].astype(np.float32)
+                unsafe_states = torch.from_numpy(unsafe_states).to(device).to(torch.float32)
+                unsafe_qval_pred = q_network(unsafe_states)
+                unsafe_val_pred = unsafe_qval_pred.max(dim=1)[0]
+                unsafe_val_true = 0 * torch.ones(unsafe_val_pred.shape, device=device, dtype=torch.float32)
+                unsafe_loss = F.mse_loss(unsafe_val_pred, unsafe_val_true)
+                writer.add_scalar("losses/unsafe_loss", unsafe_loss, global_step)
+                loss += args.unsafe_loss_coef * unsafe_loss
+
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
                     writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
@@ -198,7 +230,7 @@ if __name__ == "__main__":
                         args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                     )
             
-            if global_step % args.eval_frequency == 0:
+            if args.eval_frequency > 0 and global_step % args.eval_frequency == 0:
                 # Evaluate model
                 eval_envs = gym.vector.SyncVectorEnv([make_env(args.env_id, args.seed, 0, args.capture_video, run_name, record_obs_act_hist=True)])
                 results: 'pd.Dataframe' = evaluate(q_network, eval_envs, 10, device)
