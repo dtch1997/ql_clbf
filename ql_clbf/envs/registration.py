@@ -19,7 +19,7 @@ register(
     reward_threshold=0,
 )
 
-register
+register(
     'SafePendulum-v1',
     entry_point='ql_clbf.envs.safe_pendulum:SafePendulumEnv',
     max_episode_steps=200,
