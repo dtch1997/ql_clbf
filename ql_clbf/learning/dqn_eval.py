@@ -9,26 +9,7 @@ import torch.nn as nn
 from typing import List
 
 from ql_clbf.learning.env_utils import make_env
-from ql_clbf.net.q_network import QNetwork
-
-class QNetworkEnsemble(nn.Module):
-    def __init__(self, envs, models: List[nn.Module]):
-        super(QNetworkEnsemble, self).__init__()
-        self.envs = envs
-        self.models = nn.ModuleList(models)
-
-    def get_num_models(self):
-        return len(self.models)
-
-    def forward(self, x, reduction: str ='min'):
-        assert reduction in ['min', 'max', 'mean']
-        q_values = torch.stack([model(x) for model in self.models], dim=0)
-        if reduction == 'min':
-            return torch.min(q_values, dim=0)[0]
-        elif reduction == 'max':
-            return torch.max(q_values, dim=0)[0]
-        elif reduction == 'mean':
-            return torch.mean(q_values, dim=0)
+from ql_clbf.net.q_network import QNetwork, QNetworkEnsemble
 
 def load_env(
     env_id: str,

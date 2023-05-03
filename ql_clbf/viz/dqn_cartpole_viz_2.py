@@ -8,6 +8,8 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.ticker import MaxNLocator
 
 from typing import Callable, List
+from ql_clbf.net.q_network import QNetwork, QNetworkEnsemble
+from ql_clbf.learning.env_utils import make_env
 
 def get_zero_spaces():
     """ Get zero spaces for plotting
@@ -105,27 +107,43 @@ def load_model(
     model.eval()
     return model, envs
 
+
+def load_ensemble_model(
+    envs: gym.vector.SyncVectorEnv,
+    model_paths: List[str],
+    device: torch.device = torch.device("cpu"),
+):
+    models = []
+    for model_path in model_paths:
+        _model = QNetwork(envs).to(device)
+        _model.load_state_dict(torch.load(model_path, map_location=device))
+        models.append(_model)
+    model = QNetworkEnsemble(envs, models).to(device)
+    model.eval()
+    return model
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--env-id', type=str)
-    parser.add_argument('--model-path', type=str)
+    parser.add_argument('--model-paths', type=str, nargs='+')
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
-
-    from ql_clbf.net.q_network import QNetwork
-    from ql_clbf.learning.env_utils import make_env
-
     args = get_args()
-    model, env = load_model(
-        args.model_path,
+    _, env = load_model(
+        args.model_paths[0],
         make_env,
         args.env_id,
         run_name=f"eval",
         Model=QNetwork,
         device="cpu",
         capture_video=False
+    )
+    model = load_ensemble_model(
+        env,
+        args.model_paths,
+        device="cpu",
     )
     
     env = gym.make('CartPole-v1')
@@ -169,7 +187,7 @@ if __name__ == '__main__':
     state_values = model.predict_value(states, optimal_actions)
     state_values = state_values.reshape(1, 1, 100, 100)
     state_values = torch.Tensor(state_values)
-    barrier_values = - state_values + 90
+    barrier_values = - state_values + 75
 
     fig, ax = plt.subplots(ncols=2, figsize=(25, 10))
     plot_heatmap_theta(fig, ax[0], theta_space, theta_dot_space, barrier_values)
@@ -187,7 +205,7 @@ if __name__ == '__main__':
     state_values = model.predict_value(states, optimal_actions)
     state_values = state_values.reshape(100, 100, 1, 1)
     state_values = torch.Tensor(state_values)
-    barrier_values = - state_values + 90
+    barrier_values = - state_values + 75
     plot_heatmap_x(fig, ax[1], x_space, x_dot_space, barrier_values)
     ax[1].scatter(state_history[:,0], state_history[:,1], c='k', s=1)
 
