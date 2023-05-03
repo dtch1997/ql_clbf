@@ -13,7 +13,7 @@ register(
 )
 
 register(
-    'DiverseCArtPole-v1',
+    'DiverseCartPole-v1',
     entry_point='ql_clbf.envs.safe_cartpole:DiverseCartPoleEnv',
     max_episode_steps=500,
     reward_threshold=475.0,

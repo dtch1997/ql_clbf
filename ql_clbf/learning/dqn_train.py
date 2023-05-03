@@ -186,10 +186,15 @@ if __name__ == "__main__":
 
                 # Implement analytic loss
                 # In CartPole, assume that state [0,0,0,0] is optimal
-                zeros = torch.zeros(1, 4, device=device, dtype=torch.float32)
-                optimal_qval_pred = q_network(zeros)
+                safe_states = np.random.uniform(
+                    low = (-2.0, 0, 0, 0),
+                    high = (2.0, 0, 0, 0),
+                    size = (args.batch_size, 4)
+                ).astype(np.float32)
+                safe_states = torch.Tensor(safe_states).to(device)
+                optimal_qval_pred = q_network(safe_states)
                 optimal_val_pred = optimal_qval_pred.max(dim=1)[0]
-                optimal_val_true = 100 * torch.ones(1, device=device, dtype=torch.float32)
+                optimal_val_true = 100 * torch.ones(args.batch_size, device=device, dtype=torch.float32)
                 analytic_loss = F.mse_loss(optimal_val_pred, optimal_val_true)
                 writer.add_scalar("losses/analytic_loss", analytic_loss, global_step)
                 loss += args.analytic_loss_coef * analytic_loss
@@ -206,7 +211,7 @@ if __name__ == "__main__":
                         return np.logical_or(x < -2.4, theta < -theta_threshold)
                     elif args.env_id == 'CartPoleD-v1':
                         return np.logical_or(x > 2.4, theta > theta_threshold)
-                    elif args.env_id == 'CartPole-v1':
+                    else:
                         return np.logical_or(np.abs(x) > 2.4, np.abs(theta) > theta_threshold)
 
                 unsafe_states = states[is_unsafe(states)].astype(np.float32)
