@@ -23,6 +23,9 @@ class TabularQLearning:
         else: 
             return self.q_table[state, action]
         
+    def get_safe_actions(self, state):
+        return np.nonzero(self.q_table[state] > 0)[0]
+        
     def update_q_value(self, state, action, reward, next_state):
         q_value_curr = self.get_q_value(state, action)
         q_value_target = reward + self.gamma * self.get_q_value(next_state).max()
@@ -42,6 +45,15 @@ def get_state_value_grid(q_table, env):
         state_values_grid[row, col] = q_table[i].max()
     return state_values_grid
 
+def get_default_desc():
+    pass
+
+def desc_to_string(desc):
+    return "|".join(desc)
+
+def desc_from_string(desc_str):
+    return desc_str.split("|")
+
 def get_desc_A():
     return ["FFSFF", "FHHFF", "FFFFF", "FFFFF", "FFGFF"]
 
@@ -56,6 +68,11 @@ def generate_fixed_experiment():
         "A": get_desc_A(),
         "B": get_desc_B(),
         "AB": get_desc_AB(),
+    }
+
+def generate_default_experiment():
+    return {
+        "default": ["SFFF", "FHFH", "FFFH", "HFFG"]
     }
 
 def generate_base_description():
@@ -81,6 +98,18 @@ def put_object(desc, positions, obj):
     return desc
 
 def generate_random_experiment():
+    desc = generate_base_description()
+    positions = generate_random_positions(1 + 1 + 4)
+    put_object(desc, positions[0:1], "S")
+    put_object(desc, positions[1:2], "G")
+    put_object(desc, positions[2:6], "H")
+
+    desc_str = desc_to_string(desc)    
+    return {
+        desc_str: desc
+    }
+
+def generate_random_composition_experiment():
     desc = generate_base_description()
     positions = generate_random_positions(1 + 1 + 4 + 4)
     put_object(desc, positions[0:1], "S")
@@ -111,13 +140,19 @@ if __name__ == "__main__":
 
     import argparse 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--fixed', action='store_true')
+    parser.add_argument('--exp', type=str, default = 'default')
     args = parser.parse_args()
 
-    if args.fixed:
+    if args.exp == 'default':
+        descs = generate_default_experiment()
+    elif args.exp == 'fixed':
         descs = generate_fixed_experiment()
-    else:
+    elif args.exp == 'random':
         descs = generate_random_experiment()
+    elif args.exp == 'random_composition':
+        descs = generate_random_composition_experiment()
+    else:
+        raise ValueError("Invalid experiment type")
 
     for name, desc in descs.items():
         env = gym.make("FrozenLake-v1", is_slippery=False, desc=desc)
@@ -151,6 +186,13 @@ if __name__ == "__main__":
             
                 prev_state_grid = state_value_grid
 
+        import pathlib
+        save_dir = pathlib.Path(f'experiments/{name}')
+        save_dir.mkdir(parents=True, exist_ok=True)
+
         # Save state grid
-        np.save(f'desc_{name}.npy', state_value_grid)
-    
+        np.save(f'{save_dir}/desc.npy', state_value_grid)
+        # Save agent
+        import pickle
+        with open(f'{save_dir}/agent.pkl', 'wb') as f:
+            pickle.dump(agent, f) 

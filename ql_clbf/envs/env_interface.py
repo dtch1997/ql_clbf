@@ -7,7 +7,10 @@ import numpy as np
 class EnvHParams:
     observation_dim: int # Flattened dimension of observation
     action_dim: int # Flattened dimension of actions
+    gamma: float # Discount factor
     r_max: float # Maximum reward
+    r_min: float # Minimum reward
+    r_term: float # Termination reward
 
 class SafetyEnv(abc.ABC):
 

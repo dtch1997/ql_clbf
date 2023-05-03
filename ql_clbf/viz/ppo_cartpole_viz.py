@@ -8,8 +8,8 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.ticker import MaxNLocator
 
 from typing import Callable, List
-from ql_clbf.learning.dqn_train import make_env, QNetwork
-from ql_clbf.learning.dqn_eval import QNetworkEnsemble
+from ql_clbf.learning.env_utils import make_env
+from ql_clbf.learning.ppo_train import Agent
 
 def load_model(
     model_path: str,
@@ -26,26 +26,6 @@ def load_model(
     model.eval()
     return model, envs
 
-def load_ensemble_model(
-    model_paths: List[str],
-    make_env: Callable,
-    env_id: str,
-    run_name: str,
-    Model: torch.nn.Module,
-    device: torch.device = torch.device("cpu"),
-    capture_video: bool = True,
-):
-    envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
-    models = []
-    for model_path in model_paths:
-        _model = Model(envs).to(device)
-        _model.load_state_dict(torch.load(model_path, map_location=device))
-        models.append(_model)
-    model = QNetworkEnsemble(envs, models).to(device)
-    model.eval()
-    return model, envs
-
-
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--env-id', type=str)
@@ -60,12 +40,12 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    model, env = load_ensemble_model(
-        args.model_paths,
+    model, env = load_model(
+        args.model_paths[0],
         make_env,
         args.env_id,
         run_name=f"eval",
-        Model=QNetwork,
+        Model=Agent,
         device="cpu",
         capture_video=False
     )
@@ -83,8 +63,7 @@ if __name__ == "__main__":
             x_space, x_dot_space, theta_space, theta_dot_space, indexing='xy'
         )
         state_space = torch.stack([grid_x, grid_x_dot, grid_theta, grid_theta_dot], dim=-1)
-        qsa_values = model(state_space)
-        qs_values, _ = torch.max(qsa_values, dim=-1)
+        qs_values = model.get_value(state_space).squeeze(-1)
 
         X = theta_space
         Y = theta_dot_space
@@ -116,8 +95,7 @@ if __name__ == "__main__":
             x_space, x_dot_space, theta_space, theta_dot_space, indexing='xy'
         )
         state_space = torch.stack([grid_x, grid_x_dot, grid_theta, grid_theta_dot], dim=-1)
-        qsa_values = model(state_space)
-        qs_values, _ = torch.max(qsa_values, dim=-1)
+        qs_values = model.get_value(state_space).squeeze(-1)
 
         X = x_space
         Y = x_dot_space
