@@ -154,16 +154,24 @@ if __name__ == '__main__':
     states = []
     actions = []
     values = []
+    td_errors = []
     while not done:
         states.append(state)
         action = model.predict([state]).item()
         value = model.predict_value([state], [action]).item()
         values.append(value)
         actions.append(action)
-        state, _, done, _ = env.step(action)
+        next_state, reward, done, _ = env.step(action)
+        next_action = model.predict([next_state]).item()
+        next_value = model.predict_value([next_state], [action]).item()
+        td_error = np.abs(reward + 0.99 * next_value - value)
+        td_errors.append(td_error)
+        state = next_state
+
     state_history = np.array(states)
     action_history = np.array(actions)
     value_history = np.array(values)
+    td_error_history = np.array(td_errors)
 
     # Plot value history
     time = np.arange(len(state_history))
@@ -172,6 +180,16 @@ if __name__ == '__main__':
     ax.set_xlabel('Time')
     ax.set_ylabel('Value')
     ax.set_title('Value history')
+    fig.show()
+    input('Press enter to continue...')
+
+    # Plot td error history
+    time = np.arange(len(state_history))
+    fig, ax = plt.subplots()
+    ax.plot(time, td_error_history)
+    ax.set_xlabel('Time')
+    ax.set_ylabel('TD error')
+    ax.set_title('TD error history')
     fig.show()
     input('Press enter to continue...')
 
